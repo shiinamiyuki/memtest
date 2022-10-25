@@ -1,5 +1,6 @@
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
+use rayon::prelude::*;
 use std::time::{Duration, Instant};
 #[repr(align(64))]
 struct Cacheline {
@@ -162,7 +163,59 @@ fn test_random() {
         size *= 2;
     }
 }
+fn test_write_bandwith() {
+    let mut arr: Vec<u64> = vec![0; 1024 * 1024 * 256];
+
+    let mut rng = thread_rng();
+    let mut acc = 0u64;
+    let start = Instant::now();
+    for _ in 0..128 {
+        // arr.fill(rng.gen());
+        let c = rng.gen();
+        arr.par_iter_mut().for_each(|x| *x = c);
+        acc ^= arr[0] as u64;
+    }
+    let end = Instant::now();
+    let elapsed = end - start;
+    let total_size = arr.len() * std::mem::size_of::<u64>();
+    println!(
+        "total:{:.5}s bandwith: {:.3}GB/s (unused) {}",
+        elapsed.as_secs_f64() as f64,
+        128.0 * (total_size as f64 / 1024.0 / 1024.0 / 1024.0) / elapsed.as_secs_f64() as f64,
+        acc
+    );
+}
+fn test_read_bandwith() {
+    let mut arr: Vec<u64> = vec![0; 1024 * 1024 * 256];
+    let total_size = arr.len() * std::mem::size_of::<u64>();
+    let mut rng = thread_rng();
+    arr.fill_with(|| rng.gen());
+    let mut acc = 0u64;
+    let start = Instant::now();
+    for _ in 0..128 {
+        // for j in 0..arr.len() {
+        //     unsafe {
+        //         acc += *arr.get_unchecked(j); //(*arr.get_unchecked(j) ^ i) as u64;
+        //     }
+        // }
+        acc ^= arr.par_iter().cloned().reduce(|| 0u64, |a, b| a ^ b);
+    }
+    let end = Instant::now();
+    let elapsed = end - start;
+    println!(
+        "total:{:.5}s bandwith: {:.3}GB/s (unused) {}",
+        elapsed.as_secs_f64() as f64,
+        128.0 * (total_size as f64 / 1024.0 / 1024.0 / 1024.0) / elapsed.as_secs_f64() as f64,
+        acc
+    );
+}
 fn main() {
+    println!("write bandwidth");
+    test_write_bandwith();
+    println!("read bandwidth");
+    test_read_bandwith();
+    println!("sequential read latency");
     test_seq();
+    println!("random read latency");
     test_random();
 }
